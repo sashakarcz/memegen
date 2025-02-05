@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Create a Meme</title>
+    <!-- Material Design CSS -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap">
+    <link rel="stylesheet" href="https://storage.googleapis.com/material-design-lite/material.min.css">
+    <!-- Material Design JavaScript -->
+    <script src="https://storage.googleapis.com/material-design-lite/material.min.js"></script>
+</head>
+<body>
+    <h1>Create a Meme</h1>
+    <form action="/generate" method="post">
+        <label>Template:</label>
+        <select name="template">
+            {{range .}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}
+        </select>
+        <br>
+        <label>Top Text:</label>
+        <input type="text" name="top">
+        <br>
+        <label>Bottom Text:</label>
+        <input type="text" name="bottom">
+        <br>
+        <button type="submit">Generate Meme</button>
+    </form>
+</body>
+</html>
+
