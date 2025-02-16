@@ -24,8 +24,8 @@ A self-hosted **meme generation platform** that allows users to:
 ## 📦 **Setup & Installation**
 ### **1️⃣ Clone the Repository**
 ```sh
-git clone https://github.com/yourusername/meme-generator.git
-cd meme-generator
+git clone https://github.com/yourusername/memegen.git
+cd memegen
 ```
 
 ### **2️⃣ Start the Services**
