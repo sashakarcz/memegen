@@ -5,6 +5,7 @@ A self-hosted **meme generation platform** that allows users to:
 - Add **context** and **external links** for reference 🔗
 - Vote on memes with **upvotes/downvotes** 👍👎
 - Cache images for faster performance using **Redis** ⚡
+- Material UI
 
 ![Meme Generator Screenshot](memegen.png)
 ![Create a meme Screenshot](create.png)
