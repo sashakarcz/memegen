@@ -6,6 +6,8 @@ A self-hosted **meme generation platform** that allows users to:
 - Vote on memes with **upvotes/downvotes** 👍👎
 - Cache images for faster performance using **Redis** ⚡
 
+![Meme Generator Screenshot](memegen.png)
+
 ## 🚀 Features
 - **Live Meme Previews** before creation
 - **Material Design UI** for a modern experience
