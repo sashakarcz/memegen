@@ -10,7 +10,7 @@ services:
     container_name: memegen
     image: astrognome/memegen
     ports:
-      - "5000:5000"
+      - "5002:5000"
     restart: always
 
   postgres:

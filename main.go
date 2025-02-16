@@ -39,7 +39,7 @@ type MemeTemplate struct {
 var (
     db         *sql.DB
     redisClient *redis.Client
-    memegenAPI  = "http://localhost:5000"
+    memegenAPI  = "http://localhost:5002"
     ctx        = context.Background()
 )
 
@@ -92,11 +92,47 @@ func main() {
         }
         return c.Redirect("/")
     })
+    
+    // Proxy Memegen API through Fiber
+    app.Get("/api/images/:template/:top/:bottom.png", func(c *fiber.Ctx) error {
+    template := c.Params("template")
+    top := c.Params("top")
+    bottom := c.Params("bottom")
+
+    // Construct the correct Memegen API URL
+    memegenURL := fmt.Sprintf("%s/images/%s/%s/%s.png", memegenAPI, template, top, bottom)
+    log.Println("Proxying request to:", memegenURL)
+
+    // Fetch the image from Memegen API
+    resp, err := http.Get(memegenURL)
+    if err != nil {
+        log.Println("Error fetching image:", err)
+        return c.Status(500).SendString("Error fetching meme image")
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode == http.StatusNotFound {
+        log.Println("Memegen API returned 404:", memegenURL)
+        return c.Status(404).SendString("Meme not found")
+    }
+
+    // Read the image into memory
+    imageBytes, err := io.ReadAll(resp.Body)
+    if err != nil {
+        log.Println("Error reading meme image:", err)
+        return c.Status(500).SendString("Error processing meme image")
+    }
+
+    // Serve the image with correct Content-Type
+    c.Set("Content-Type", "image/png")
+    return c.Send(imageBytes)
+    })
+ 
 
     // Route: Serve Meme via Redis
     app.Get("/meme/:id", serveMeme)
 
-    log.Fatal(app.Listen(":8080"))
+    log.Fatal(app.Listen(":8181"))
 }
 
 // Create DB table
