@@ -36,7 +36,7 @@ docker-compose up -d
 
 This will start:
 
- - Memegen API (backend)
+ - [Memegen API](https://github.com/jacebrowning/memegen) (backend)
  - Redis (for caching)
 
 ### **3️⃣ Build the Golang Binary**
