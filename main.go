@@ -9,6 +9,7 @@ import (
     "io"
     "log"
     "net/http"
+    "strings"
     "time"
 
     "github.com/gofiber/fiber/v2"
@@ -19,20 +20,20 @@ import (
 
 // Meme struct (metadata only)
 type Meme struct {
-    ID         int
-    Template   string
-    TopText    string
-    BottomText string
-    URL        string
-    Context    string
-    Link       string
-    Votes      int
+    ID       int
+    Template string
+    Lines    string // JSON array to store multiple lines
+    URL      string
+    Context  string
+    Link     string
+    Votes    int
 }
 
 // Memegen Template struct
 type MemeTemplate struct {
     ID       string `json:"id"`
     Name     string `json:"name"`
+    Lines    int    `json:"lines"`
     BlankURL string `json:"blank"`
     Example  struct {
         URL string `json:"url"`
@@ -75,20 +76,41 @@ func main() {
         templates, _ := fetchMemegenTemplates()
         return renderTemplate(c, "meme_form.html", templates)
     })
+        // Route: Delete Meme (Requires Admin Key)
+    app.Delete("/delete/:id", func(c *fiber.Ctx) error {
+        memeID := c.Params("id")
+        adminKey := c.Query("key") // Get key from request query
 
-    // Route: Generate Meme
-    app.Post("/generate", func(c *fiber.Ctx) error {
-        templateName := c.FormValue("template")
-        topText := c.FormValue("top")
-        bottomText := c.FormValue("bottom")
-        context := c.FormValue("context")
-        link := c.FormValue("link")
-        url := fmt.Sprintf("%s/images/%s/%s/%s.png", memegenAPI, templateName, topText, bottomText)
+        // Compare key with expected admin key
+        expectedKey := "CHANGEME" // Store in an environment variable for security
+        if adminKey != expectedKey {
+            return c.Status(403).JSON(fiber.Map{"error": "Unauthorized"})
+        }
 
-        saveMeme(templateName, topText, bottomText, url, context, link)
-        return c.Redirect("/")
+        // Retrieve meme URL before deleting it from the database
+        var memeURL string
+        err := db.QueryRow("SELECT url FROM memes WHERE id = ?", memeID).Scan(&memeURL)
+        if err != nil {
+            return c.Status(404).JSON(fiber.Map{"error": "Meme not found"})
+        }
+
+        // Delete meme from database
+        _, err = db.Exec("DELETE FROM memes WHERE id = ?", memeID)
+        if err != nil {
+            return c.Status(500).JSON(fiber.Map{"error": "Database error"})
+        }
+
+        // Remove meme from Redis
+        err = redisClient.Del(ctx, memeURL).Err()
+        if err != nil {
+            log.Println("Error removing meme from Redis:", err)
+        } else {
+            log.Printf("Deleted meme from Redis: %s", memeURL)
+        }
+
+        return c.JSON(fiber.Map{"success": "Meme deleted"})
     })
- 
+
     // Route: Handle Meme Voting with Redis User Tracking
     app.Post("/vote/:id/:direction", func(c *fiber.Ctx) error {
         memeID := c.Params("id")
@@ -137,66 +159,69 @@ func main() {
         return c.JSON(fiber.Map{"votes": getMemeVotes(memeID)})
     })
 
-    // Route: Delete Meme (Requires Admin Key)
-    app.Delete("/delete/:id", func(c *fiber.Ctx) error {
-        memeID := c.Params("id")
-        adminKey := c.Query("key") // Get key from request query
+    // Route: Generate Meme
+    app.Post("/generate", func(c *fiber.Ctx) error {
+        templateName := c.FormValue("template")
 
-        // Compare key with expected admin key
-        expectedKey := "CHANGEME" // Store in an environment variable for security
-        if adminKey != expectedKey {
-            return c.Status(403).JSON(fiber.Map{"error": "Unauthorized"})
+        // Collect multiple lines
+        var lines []string
+        for i := 1; i <= 10; i++ {
+            line := c.FormValue(fmt.Sprintf("line%d", i))
+            if line != "" {
+                lines = append(lines, line)
+            }
         }
 
-        // Retrieve meme URL before deleting it from the database
-        var memeURL string
-        err := db.QueryRow("SELECT url FROM memes WHERE id = ?", memeID).Scan(&memeURL)
-        if err != nil {
-            return c.Status(404).JSON(fiber.Map{"error": "Meme not found"})
+        if len(lines) == 0 {
+            return c.Status(400).SendString("At least one line of text is required.")
         }
 
-        // Delete meme from database
-        _, err = db.Exec("DELETE FROM memes WHERE id = ?", memeID)
-        if err != nil {
-            return c.Status(500).JSON(fiber.Map{"error": "Database error"})
-        }
+        // Convert lines to JSON for storage
+        linesJSON, _ := json.Marshal(lines)
 
-        // Remove meme from Redis
-        err = redisClient.Del(ctx, memeURL).Err()
-        if err != nil {
-            log.Println("Error removing meme from Redis:", err)
-        } else {
-            log.Printf("Deleted meme from Redis: %s", memeURL)
-        }
+        // Generate URL for meme
+        textParams := strings.Join(lines, "/")
+        url := fmt.Sprintf("%s/images/%s/%s.png", memegenAPI, templateName, textParams)
 
-        return c.JSON(fiber.Map{"success": "Meme deleted"})
+        // Save meme
+        context := c.FormValue("context")
+        link := c.FormValue("link")
+        saveMeme(templateName, string(linesJSON), url, context, link)
+
+        return c.Redirect("/")
     })
-    
-    // Proxy Memegen API and cache WebP in Redis
-    app.Get("/api/images/:template/:top/:bottom.png", func(c *fiber.Ctx) error {
+
+    // Proxy Memegen API and cache images in Redis
+    app.Get("/api/images/:template/*", func(c *fiber.Ctx) error {
         template := c.Params("template")
-        top := c.Params("top")
-        bottom := c.Params("bottom")
+    
+        // Get all remaining parts of the path as the text lines
+        textParts := strings.Split(c.Params("*"), "/")
+    
+        // If no text parts exist, use a default placeholder
+        if len(textParts) == 0 {
+            textParts = []string{"_"}
+        }
 
-        // Generate Redis key (always WebP)
-        cacheKey := fmt.Sprintf("meme:%s:%s:%s:png", template, top, bottom)
+        // Construct Redis cache key
+        cacheKey := fmt.Sprintf("meme:%s:%s", template, strings.Join(textParts, ":"))
 
-        // Check Redis for cached image
+        // Check Redis cache first
         imageBytes, err := redisClient.Get(ctx, cacheKey).Bytes()
         if err == nil {
-            log.Printf("Serving WebP from Redis: %s", cacheKey)
+            log.Printf("Serving image from Redis: %s", cacheKey)
             c.Set("Content-Type", "image/png")
             return c.Send(imageBytes)
         }
 
-        // Construct WebP Memegen API URL
-        memegenURL := fmt.Sprintf("%s/images/%s/%s/%s.png", memegenAPI, template, top, bottom)
+        // Construct Memegen API URL dynamically
+        memegenURL := fmt.Sprintf("%s/images/%s/%s.png", memegenAPI, template, strings.Join(textParts, "/"))
         log.Println("Fetching meme from API:", memegenURL)
 
         // Fetch the image from Memegen API
         resp, err := http.Get(memegenURL)
         if err != nil {
-            log.Println("Error fetching WebP:", err)
+            log.Println("Error fetching image:", err)
             return c.Status(500).SendString("Error fetching meme image")
         }
         defer resp.Body.Close()
@@ -209,24 +234,23 @@ func main() {
         // Read image into memory
         imageBytes, err = io.ReadAll(resp.Body)
         if err != nil {
-            log.Println("Error reading WebP image:", err)
+            log.Println("Error reading image:", err)
             return c.Status(500).SendString("Error processing meme image")
         }
 
-        // Cache WebP image in Redis (expires in 7 days)
+        // Cache image in Redis (expires in 7 days)
         err = redisClient.Set(ctx, cacheKey, imageBytes, 604800*time.Second).Err()
         if err != nil {
-            log.Println("Error caching WebP in Redis:", err)
+            log.Println("Error caching image in Redis:", err)
         } else {
-            log.Printf("Cached WebP in Redis: %s", cacheKey)
+            log.Printf("Cached image in Redis: %s", cacheKey)
         }
 
-        // Serve the WebP image
+        // Serve the image
         c.Set("Content-Type", "image/png")
         return c.Send(imageBytes)
     })
  
-
     // Route: Serve Meme via Redis
     app.Get("/meme/:id", serveMeme)
 
@@ -238,8 +262,7 @@ func createTable() {
     query := `CREATE TABLE IF NOT EXISTS memes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         template TEXT,
-        topText TEXT,
-        bottomText TEXT,
+        lines TEXT,  -- JSON encoded array of lines
         url TEXT,
         context TEXT DEFAULT '',
         link TEXT DEFAULT '',
@@ -253,7 +276,7 @@ func createTable() {
 
 // Fetch all memes
 func getAllMemes() []Meme {
-    rows, err := db.Query("SELECT id, template, topText, bottomText, url, context, link, votes FROM memes ORDER BY votes DESC")
+    rows, err := db.Query("SELECT id, template, lines, url, context, link, votes FROM memes ORDER BY votes DESC")
     if err != nil {
         log.Println("Error fetching memes:", err)
         return nil
@@ -263,32 +286,92 @@ func getAllMemes() []Meme {
     var memes []Meme
     for rows.Next() {
         var meme Meme
-        err := rows.Scan(&meme.ID, &meme.Template, &meme.TopText, &meme.BottomText, &meme.URL, &meme.Context, &meme.Link, &meme.Votes)
+        var linesJSON string
+
+        err := rows.Scan(&meme.ID, &meme.Template, &linesJSON, &meme.URL, &meme.Context, &meme.Link, &meme.Votes)
         if err != nil {
             log.Println("Error scanning meme:", err)
             continue
         }
+
+        // Decode JSON lines
+        var lines []string
+        json.Unmarshal([]byte(linesJSON), &lines)
+        meme.Lines = strings.Join(lines, "\n") // Convert to a readable format
+
         memes = append(memes, meme)
     }
     return memes
 }
 
+// Save meme metadata
+func saveMeme(template, linesJSON, url, context, link string) {
+    _, err := db.Exec("INSERT INTO memes (template, lines, url, context, link, votes) VALUES (?, ?, ?, ?, ?, 0)",
+        template, linesJSON, url, context, link)
+    if err != nil {
+        log.Println("Error inserting meme:", err)
+    }
+}
+
+// Serve meme via Redis
+func serveMeme(c *fiber.Ctx) error {
+    id := c.Params("id")
+
+    // Fetch meme from DB
+    var memeURL string
+    err := db.QueryRow("SELECT url FROM memes WHERE id = ?", id).Scan(&memeURL)
+    if err != nil {
+        return c.Status(404).SendString("Meme not found")
+    }
+
+    // Check if meme is cached in Redis
+    cacheKey := fmt.Sprintf("meme:%s", id)
+    cachedImage, err := redisClient.Get(ctx, cacheKey).Bytes()
+    if err == nil {
+        c.Set("Content-Type", "image/png")
+        return c.Send(cachedImage)
+    }
+
+    // Fetch meme from API
+    resp, err := http.Get(memeURL)
+    if err != nil {
+        return c.Status(500).SendString("Error fetching meme image")
+    }
+    defer resp.Body.Close()
+
+    // Read image into memory
+    imageBytes, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return c.Status(500).SendString("Error processing meme image")
+    }
+
+    // Cache image in Redis for 7 days
+    redisClient.Set(ctx, cacheKey, imageBytes, 604800*time.Second)
+
+    // Serve the image
+    c.Set("Content-Type", "image/png")
+    return c.Send(imageBytes)
+}
+
 // Fetch Memegen templates
 func fetchMemegenTemplates() ([]MemeTemplate, error) {
-    // Try to get templates from Redis
     templates, err := getTemplatesFromRedis()
-    if err != nil {
-        // Fallback to Memegen API
+    if err != nil || len(templates) == 0 {
+        log.Println("Fetching templates from API (Redis cache miss)")
         return fetchTemplatesFromAPI()
+    }
+    for _, t := range templates {
+      log.Printf("Injecting Template: %s, Lines: %d", t.ID, t.Lines)
     }
     return templates, nil
 }
 
+// Fetch from Redis
 func getTemplatesFromRedis() ([]MemeTemplate, error) {
     ctx := context.Background()
     templatesJSON, err := redisClient.Get(ctx, "memegen-templates").Result()
     if err != nil {
-        return nil, err
+        return nil, err // Redis miss
     }
 
     var templates []MemeTemplate
@@ -296,23 +379,40 @@ func getTemplatesFromRedis() ([]MemeTemplate, error) {
     if err != nil {
         return nil, err
     }
+
     return templates, nil
 }
 
+// Fetch from API
 func fetchTemplatesFromAPI() ([]MemeTemplate, error) {
-    // Existing code to fetch templates from Memegen API
     resp, err := http.Get(memegenAPI + "/templates")
     if err != nil {
+        log.Println("Error fetching templates from API:", err)
         return nil, err
     }
     defer resp.Body.Close()
 
-    body, _ := io.ReadAll(resp.Body)
-    var templates []MemeTemplate
-    json.Unmarshal(body, &templates)
+    if resp.StatusCode != http.StatusOK {
+        log.Println("Memegen API returned non-200 status:", resp.Status)
+        return nil, fmt.Errorf("failed to fetch templates: %s", resp.Status)
+    }
 
-    // Store templates in Redis for next time
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        log.Println("Error reading API response:", err)
+        return nil, err
+    }
+
+    var templates []MemeTemplate
+    err = json.Unmarshal(body, &templates)
+    if err != nil {
+        log.Println("Error parsing templates JSON:", err)
+        return nil, err
+    }
+
+    // Store templates in Redis with expiration (e.g., 24 hours)
     storeTemplatesInRedis(templates)
+
     return templates, nil
 }
 
@@ -324,18 +424,11 @@ func storeTemplatesInRedis(templates []MemeTemplate) {
         return
     }
 
-    err = redisClient.Set(ctx, "memegen-templates", templatesJSON, 0).Err()
+    err = redisClient.Set(ctx, "memegen-templates", templatesJSON, 24*time.Hour).Err()
     if err != nil {
         log.Println("Error storing templates in Redis:", err)
-    }
-}
-
-// Save meme metadata with context and link
-func saveMeme(template, topText, bottomText, url, context, link string) {
-    _, err := db.Exec("INSERT INTO memes (template, topText, bottomText, url, context, link, votes) VALUES (?, ?, ?, ?, ?, ?, 0)",
-        template, topText, bottomText, url, context, link)
-    if err != nil {
-        log.Println("Error inserting meme:", err)
+    } else {
+        log.Println("Successfully cached templates in Redis for 24 hours")
     }
 }
 
@@ -362,37 +455,6 @@ func generateMeme(template, topText, bottomText string) ([]byte, error) {
     return io.ReadAll(resp.Body)
 }
 
-// Serve meme via Redis
-func serveMeme(c *fiber.Ctx) error {
-    id := c.Params("id")
-    row := db.QueryRow("SELECT url FROM memes WHERE id = ?", id)
-    var memeURL string
-    err := row.Scan(&memeURL)
-    if err != nil {
-        return err
-    }
-
-    // Check if meme is cached in Redis
-    img, err := redisClient.Get(ctx, memeURL).Bytes()
-    if err != nil {
-        // Generate meme if not cached
-        template, topText, bottomText := getMemeParams(memeURL)
-        img, err = generateMeme(template, topText, bottomText)
-        if err != nil {
-            return err
-        }
-
-        // Cache meme in Redis
-        err = redisClient.Set(ctx, memeURL, img, 0).Err()
-        if err != nil {
-            log.Println("Error caching meme:", err)
-        }
-    }
-
-    // Serve image directly from Go application
-    c.Set("Content-Type", "image/png")
-    return c.Send(img)
-}
 
 // Get meme parameters from SQLite DB
 func getMemeParams(url string) (template, topText, bottomText string) {
