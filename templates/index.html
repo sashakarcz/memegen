@@ -1,84 +1,141 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <style>
-      /* Override MDL's auto-hide behavior */
-      .mdl-layout__header.is-compact {
-        height: 64px !important;
-      }
-
-      /* Improve Meme Gallery Layout */
-      .meme-gallery {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 20px;
-          padding: 20px;
-      }
-
-      /* Adjust Meme Cards for Mobile */
-      .mdl-cell {
-          flex: 1 1 30%;
-          max-width: 30%;
-          min-width: 250px;
-      }
-
-      /* Ensure Images Are Displayed Properly */
-      .mdl-card img {
-          width: 100%;
-          height: auto;
-          border-radius: 8px;
-      }
-
-      /* Improve Header Spacing for Mobile */
-      @media (max-width: 768px) {
-          .mdl-layout__header-row {
-              padding: 0 10px;
-          }
-
-          .mdl-layout-title {
-              font-size: 1.4rem;
-          }
-
-          /* Make meme cards full width on small screens */
-          .mdl-cell {
-              max-width: 100%;
-          }
-      }
-
-      /* Improve Button Alignment */
-      .mdl-card__actions {
-          display: flex;
-          justify-content: space-between;
-          padding: 8px;
-      }
-
-      .mdl-card__actions form {
-          display: inline;
-      }
-    </style>
-
-    <!-- Disable Rocket Loader for Material Design Lite -->
-    <meta http-equiv="x-rocket-loader" content="no">
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <title>Meme Generator</title>
 
     <!-- Material Design CSS -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/material-design-lite/1.3.0/material.indigo-pink.min.css">
-    
+    <link rel="stylesheet" href="/static/styles.css">
+
     <!-- Material Design JavaScript -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/material-design-lite/1.3.0/material.min.js"></script>
-    
-    <link rel="stylesheet" href="/static/styles.css">
+
+    <style>
+        /* Styling for Trash Icon */
+        .delete-icon {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .meme-card:hover .delete-icon {
+            opacity: 1; /* Only show when hovering */
+        }
+
+        .delete-icon:hover {
+            background: red;
+        }
+
+        /* Fix Header */
+        .mdl-layout__header.is-compact {
+            height: 64px !important;
+        }
+
+        /* Meme Gallery Grid */
+        .meme-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            padding: 20px;
+            justify-content: center;
+        }
+
+        /* Ensure Images Display Properly */
+        .mdl-card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .mdl-card img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        /* Improve Button Alignment */
+        .mdl-card__actions {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+        }
+
+        /* Ensure Buttons Have Sufficient Width */
+        .mdl-card__actions button {
+            min-width: 120px;
+            padding: 8px 12px;
+            white-space: nowrap;
+        }
+
+        /* Disable Buttons Temporarily While Voting */
+        .disabled {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+    </style>
+
+    <script>
+        // Function to handle voting without page reload
+        function vote(memeID, direction, button) {
+            button.classList.add("disabled"); // Temporarily disable button
+            fetch(`/vote/${memeID}/${direction}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.votes !== undefined) {
+                    document.getElementById(`vote-count-${memeID}`).innerText = data.votes;
+                }
+            })
+            .catch(error => console.error("Error:", error))
+            .finally(() => button.classList.remove("disabled")); // Re-enable button
+        }
+
+        // Function to delete meme with admin key
+        function deleteMeme(memeID) {
+            let adminKey = prompt("Enter admin key:");
+            if (!adminKey) return;
+
+            fetch(`/delete/${memeID}?key=${adminKey}`, {
+                method: "DELETE"
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert("Meme deleted successfully!");
+                    location.reload();
+                } else {
+                    alert("Error: " + data.error);
+                }
+            })
+            .catch(error => console.error("Error:", error));
+        }
+    </script>
 </head>
+
 <body>
     <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
         <!-- Header -->
         <header class="mdl-layout__header">
             <div class="mdl-layout__header-row">
-                    <span class="mdl-layout-title"><h3>Memegen</h3></span>
+                <span class="mdl-layout-title">Memegen</span>
                 <div class="mdl-layout-spacer"></div>
                 <a href="/generate" class="mdl-button mdl-js-button mdl-button--fab mdl-button--mini-fab mdl-button--colored">
                     <i class="material-icons">add</i>
@@ -88,38 +145,38 @@
 
         <!-- Main Content -->
         <main class="mdl-layout__content">
-            <div class="meme-gallery mdl-grid">
+            <div class="meme-gallery">
                 {{range .}}
-                <div class="mdl-cell mdl-cell--4-col">
-                    <div class="mdl-card mdl-shadow--2dp">
-                        <div class="mdl-card__media">
-                            <img src="/meme/{{.ID}}" width="100%">
-                        </div>
-                        <div class="mdl-card__supporting-text">
-                            {{.TopText}} / {{.BottomText}}
-                        </div>
-                        {{if .Context}}
-                        <div class="mdl-card__supporting-text">
-                          <small><strong>Context:</strong> {{.Context}}</small>
-                        </div>
-                        {{end}}
-                        {{if .Link}}
-                        <div class="mdl-card__supporting-text">
-                          <small><strong>Source:</strong> <a href="{{.Link}}" target="_blank">🔗 View Source</a></small>
-                        </div>
-                        {{end}}
-                        <div class="mdl-card__actions">
-                            <form action="/vote/{{.ID}}/up" method="post">
-                                <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored" type="submit">
-                                    👍 Upvote ({{.Votes}})
-                                </button>
-                            </form>
-                            <form action="/vote/{{.ID}}/down" method="post">
-                                <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--accent" type="submit">
-                                    👎 Downvote
-                                </button>
-                            </form>
-                        </div>
+                <div class="mdl-card mdl-shadow--2dp meme-card">
+                    <!-- Trash icon in top-right corner -->
+                    <button class="delete-icon" onclick="deleteMeme('{{.ID}}')">
+                        <i class="material-icons">delete</i>
+                    </button>
+
+                    <div class="mdl-card__media">
+                        <img src="/meme/{{.ID}}" width="100%">
+                    </div>
+                    {{if .Context}}
+                    <div class="mdl-card__supporting-text">
+                        <small><strong>Context:</strong> {{.Context}}</small>
+                    </div>
+                    {{end}}
+
+                    {{if .Link}}
+                    <div class="mdl-card__supporting-text">
+                        <small><strong>Source:</strong> <a href="{{.Link}}" target="_blank">🔗 View Source</a></small>
+                    </div>
+                    {{end}}
+
+                    <div class="mdl-card__actions">
+                        <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored" 
+                                onclick="vote('{{.ID}}', 'up', this)">
+                            👍 Upvote (<span id="vote-count-{{.ID}}">{{.Votes}}</span>)
+                        </button>
+                        <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--accent"
+                                onclick="vote('{{.ID}}', 'down', this)">
+                            👎 Downvote (-1)
+                        </button>
                     </div>
                 </div>
                 {{end}}
