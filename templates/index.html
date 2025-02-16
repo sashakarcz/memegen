@@ -78,7 +78,7 @@
         <!-- Header -->
         <header class="mdl-layout__header">
             <div class="mdl-layout__header-row">
-                <span class="mdl-layout-title">Memegen</span>
+                    <span class="mdl-layout-title"><h3>Memegen</h3></span>
                 <div class="mdl-layout-spacer"></div>
                 <a href="/generate" class="mdl-button mdl-js-button mdl-button--fab mdl-button--mini-fab mdl-button--colored">
                     <i class="material-icons">add</i>
@@ -98,6 +98,16 @@
                         <div class="mdl-card__supporting-text">
                             {{.TopText}} / {{.BottomText}}
                         </div>
+                        {{if .Context}}
+                        <div class="mdl-card__supporting-text">
+                          <small><strong>Context:</strong> {{.Context}}</small>
+                        </div>
+                        {{end}}
+                        {{if .Link}}
+                        <div class="mdl-card__supporting-text">
+                          <small><strong>Source:</strong> <a href="{{.Link}}" target="_blank">🔗 View Source</a></small>
+                        </div>
+                        {{end}}
                         <div class="mdl-card__actions">
                             <form action="/vote/{{.ID}}/up" method="post">
                                 <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored" type="submit">
