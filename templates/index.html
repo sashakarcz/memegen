@@ -39,6 +39,22 @@
           .mdl-layout-title {
               font-size: 1.4rem;
           }
+
+          /* Make meme cards full width on small screens */
+          .mdl-cell {
+              max-width: 100%;
+          }
+      }
+
+      /* Improve Button Alignment */
+      .mdl-card__actions {
+          display: flex;
+          justify-content: space-between;
+          padding: 8px;
+      }
+
+      .mdl-card__actions form {
+          display: inline;
       }
     </style>
 
@@ -83,8 +99,15 @@
                             {{.TopText}} / {{.BottomText}}
                         </div>
                         <div class="mdl-card__actions">
-                            <form action="/vote/{{.ID}}" method="post">
-                                <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored" type="submit">👍 Upvote ({{.Votes}})</button>
+                            <form action="/vote/{{.ID}}/up" method="post">
+                                <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored" type="submit">
+                                    👍 Upvote ({{.Votes}})
+                                </button>
+                            </form>
+                            <form action="/vote/{{.ID}}/down" method="post">
+                                <button class="mdl-button mdl-js-button mdl-button--raised mdl-button--accent" type="submit">
+                                    👎 Downvote
+                                </button>
                             </form>
                         </div>
                     </div>
