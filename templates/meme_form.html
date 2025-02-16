@@ -10,20 +10,58 @@
     <link rel="stylesheet" href="/static/styles.css">
     
     <script>
-        function updatePreview() {
-            let template = document.getElementById("template").value;
-            let topText = document.getElementById("top").value.trim();
-            let bottomText = document.getElementById("bottom").value.trim();
+        // Dynamically adjust text fields based on the selected template
+        function updateTextFields() {
+            let templateSelect = document.getElementById("template");
+            let selectedOption = templateSelect.options[templateSelect.selectedIndex];
+            let lines = parseInt(selectedOption.getAttribute("data-lines")) || 2; // Default to 2 lines
 
-            // Replace spaces with underscores
-            topText = topText ? encodeURIComponent(topText.replace(/ /g, "_")) : "_";
-            bottomText = bottomText ? encodeURIComponent(bottomText.replace(/ /g, "_")) : "_";
+            let textContainer = document.getElementById("text-fields");
+            textContainer.innerHTML = ""; // Clear previous inputs
 
-            // Use Fiber Proxy instead of calling localhost:5002 directly
-            let previewUrl = `/api/images/${template}/${topText}/${bottomText}.png`;
-            document.getElementById("memePreview").src = previewUrl;
+            for (let i = 1; i <= lines; i++) {
+                let div = document.createElement("div");
+                div.className = "mdl-textfield mdl-js-textfield mdl-textfield--floating-label";
+
+                let input = document.createElement("input");
+                input.type = "text";
+                input.className = "mdl-textfield__input";
+                input.id = `line${i}`;
+                input.name = `line${i}`;
+                input.setAttribute("oninput", "updatePreview()");
+
+                let label = document.createElement("label");
+                label.className = "mdl-textfield__label";
+                label.setAttribute("for", `line${i}`);
+                label.innerText = `Line ${i} Text`;
+
+                div.appendChild(input);
+                div.appendChild(label);
+                textContainer.appendChild(div);
+            }
+
+            // Refresh MDL input styling
+            componentHandler.upgradeDom();
+            updatePreview();
         }
-    </script>
+        function updatePreview() {
+    let template = document.getElementById("template").value;
+    let textFields = document.querySelectorAll("#text-fields input");
+
+    let encodedTexts = [];
+    textFields.forEach(input => {
+        let text = input.value.trim();
+        encodedTexts.push(text ? encodeURIComponent(text.replace(/ /g, "_")) : "_");
+    });
+
+    // Join all lines dynamically
+    let previewUrl = `/api/images/${template}/${encodedTexts.join("/")}`;
+
+    console.log("Preview URL:", previewUrl); // Debugging line to check if it's correctly formed
+
+    document.getElementById("memePreview").src = previewUrl;
+}
+  </script>
 </head>
 <body>
     <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
@@ -45,25 +83,16 @@
                     
                     <!-- Template Selection -->
                     <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
-                        <select id="template" name="template" class="mdl-textfield__input" onchange="updatePreview()">
+                        <select id="template" name="template" class="mdl-textfield__input" onchange="updateTextFields()">
                             {{range .}}
-                            <option value="{{.ID}}">{{.Name}}</option>
+                            <option value="{{.ID}}" data-lines="{{.Lines}}">{{.Name}}</option>
                             {{end}}
                         </select>
                         <label class="mdl-textfield__label">Choose a Meme Template</label>
                     </div>
 
-                    <!-- Top Text -->
-                    <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
-                        <input type="text" id="top" name="top" class="mdl-textfield__input" oninput="updatePreview()">
-                        <label class="mdl-textfield__label" for="top">Top Text</label>
-                    </div>
-
-                    <!-- Bottom Text -->
-                    <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
-                        <input type="text" id="bottom" name="bottom" class="mdl-textfield__input" oninput="updatePreview()">
-                        <label class="mdl-textfield__label" for="bottom">Bottom Text</label>
-                    </div>
+                    <!-- Dynamic Text Fields -->
+                    <div id="text-fields"></div>
 
                     <!-- Context -->
                     <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
@@ -93,5 +122,12 @@
             </div>
         </main>
     </div>
+
+    <script>
+        // Initialize the correct number of input fields when the page loads
+        document.addEventListener("DOMContentLoaded", function() {
+            updateTextFields();
+        });
+    </script>
 </body>
 </html>
