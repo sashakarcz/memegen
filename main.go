@@ -23,6 +23,8 @@ type Meme struct {
     TopText    string
     BottomText string
     URL        string
+    Context    string
+    Link       string
     Votes      int
 }
 
@@ -78,11 +80,14 @@ func main() {
         templateName := c.FormValue("template")
         topText := c.FormValue("top")
         bottomText := c.FormValue("bottom")
+        context := c.FormValue("context")
+        link := c.FormValue("link")
         url := fmt.Sprintf("%s/images/%s/%s/%s.png", memegenAPI, templateName, topText, bottomText)
-        saveMeme(templateName, topText, bottomText, url)
+
+        saveMeme(templateName, topText, bottomText, url, context, link)
         return c.Redirect("/")
     })
-
+ 
     // Route: Upvote Meme
     app.Post("/vote/:id/up", func(c *fiber.Ctx) error {
         memeID := c.Params("id")
@@ -153,6 +158,8 @@ func createTable() {
         topText TEXT,
         bottomText TEXT,
         url TEXT,
+        context TEXT DEFAULT '',
+        link TEXT DEFAULT '',
         votes INTEGER DEFAULT 0
     )`
     _, err := db.Exec(query)
@@ -163,7 +170,7 @@ func createTable() {
 
 // Fetch all memes
 func getAllMemes() []Meme {
-    rows, err := db.Query("SELECT id, template, topText, bottomText, url, votes FROM memes ORDER BY votes DESC")
+    rows, err := db.Query("SELECT id, template, topText, bottomText, url, context, link, votes FROM memes ORDER BY votes DESC")
     if err != nil {
         log.Println("Error fetching memes:", err)
         return nil
@@ -173,7 +180,7 @@ func getAllMemes() []Meme {
     var memes []Meme
     for rows.Next() {
         var meme Meme
-        err := rows.Scan(&meme.ID, &meme.Template, &meme.TopText, &meme.BottomText, &meme.URL, &meme.Votes)
+        err := rows.Scan(&meme.ID, &meme.Template, &meme.TopText, &meme.BottomText, &meme.URL, &meme.Context, &meme.Link, &meme.Votes)
         if err != nil {
             log.Println("Error scanning meme:", err)
             continue
@@ -240,9 +247,10 @@ func storeTemplatesInRedis(templates []MemeTemplate) {
     }
 }
 
-// Save meme metadata
-func saveMeme(template, topText, bottomText, url string) {
-    _, err := db.Exec("INSERT INTO memes (template, topText, bottomText, url, votes) VALUES (?, ?, ?, ?, 0)", template, topText, bottomText, url)
+// Save meme metadata with context and link
+func saveMeme(template, topText, bottomText, url, context, link string) {
+    _, err := db.Exec("INSERT INTO memes (template, topText, bottomText, url, context, link, votes) VALUES (?, ?, ?, ?, ?, ?, 0)",
+        template, topText, bottomText, url, context, link)
     if err != nil {
         log.Println("Error inserting meme:", err)
     }
