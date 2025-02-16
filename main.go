@@ -84,9 +84,19 @@ func main() {
     })
 
     // Route: Upvote Meme
-    app.Post("/vote/:id", func(c *fiber.Ctx) error {
+    app.Post("/vote/:id/up", func(c *fiber.Ctx) error {
         memeID := c.Params("id")
         _, err := db.Exec("UPDATE memes SET votes = votes + 1 WHERE id = ?", memeID)
+        if err != nil {
+            return err
+        }
+        return c.Redirect("/")
+    })
+
+    // Route: Downvote Meme
+    app.Post("/vote/:id/down", func(c *fiber.Ctx) error {
+        memeID := c.Params("id")
+        _, err := db.Exec("UPDATE memes SET votes = votes - 1 WHERE id = ?", memeID)
         if err != nil {
             return err
         }
@@ -179,7 +189,7 @@ func fetchMemegenTemplates() ([]MemeTemplate, error) {
     templates, err := getTemplatesFromRedis()
     if err != nil {
         // Fallback to Memegen API
-	return fetchTemplatesFromAPI()
+        return fetchTemplatesFromAPI()
     }
     return templates, nil
 }
