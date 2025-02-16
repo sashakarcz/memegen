@@ -7,6 +7,8 @@ A self-hosted **meme generation platform** that allows users to:
 - Cache images for faster performance using **Redis** ⚡
 
 ![Meme Generator Screenshot](memegen.png)
+![Create a meme Screenshot](create.png)
+
 
 ## 🚀 Features
 - **Live Meme Previews** before creation
