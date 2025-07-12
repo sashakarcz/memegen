@@ -9,13 +9,14 @@ import (
     "io"
     "log"
     "net/http"
+    "os"
     "strings"
     "time"
 
     "github.com/gofiber/fiber/v2"
     "github.com/redis/go-redis/v9"
 
-    _ "github.com/mattn/go-sqlite3"
+    _ "github.com/lib/pq"
 )
 
 // Meme struct (metadata only)
@@ -27,6 +28,16 @@ type Meme struct {
     Context  string
     Link     string
     Votes    int
+    Comments []Comment
+}
+
+// Comment struct
+type Comment struct {
+    ID        int
+    MemeID    int
+    Author    string
+    Content   string
+    CreatedAt time.Time
 }
 
 // Memegen Template struct
@@ -43,21 +54,40 @@ type MemeTemplate struct {
 var (
     db         *sql.DB
     redisClient *redis.Client
-    memegenAPI  = "http://localhost:5002"
+    memegenAPI  = "http://memegen:5000"
     ctx        = context.Background()
 )
 
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
 func main() {
     var err error
-    db, err = sql.Open("sqlite3", "./database.db")
+    
+    // Get database connection parameters from environment
+    dbHost := getEnv("DB_HOST", "localhost")
+    dbPort := getEnv("DB_PORT", "5432")
+    dbUser := getEnv("DB_USER", "memegen")
+    dbPassword := getEnv("DB_PASSWORD", "memegen_password")
+    dbName := getEnv("DB_NAME", "memegen")
+    
+    connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+        dbHost, dbPort, dbUser, dbPassword, dbName)
+    db, err = sql.Open("postgres", connStr)
     if err != nil {
         log.Fatal(err)
     }
     createTable()
 
     // Initialize Redis for caching images
+    redisHost := getEnv("REDIS_HOST", "localhost")
+    redisPort := getEnv("REDIS_PORT", "6379")
     redisClient = redis.NewClient(&redis.Options{
-        Addr:     "localhost:6379",
+        Addr:     fmt.Sprintf("%s:%s", redisHost, redisPort),
         Password: "",
         DB:       0,
     })
@@ -89,13 +119,13 @@ func main() {
 
         // Retrieve meme URL before deleting it from the database
         var memeURL string
-        err := db.QueryRow("SELECT url FROM memes WHERE id = ?", memeID).Scan(&memeURL)
+        err := db.QueryRow("SELECT url FROM memes WHERE id = $1", memeID).Scan(&memeURL)
         if err != nil {
             return c.Status(404).JSON(fiber.Map{"error": "Meme not found"})
         }
 
         // Delete meme from database
-        _, err = db.Exec("DELETE FROM memes WHERE id = ?", memeID)
+        _, err = db.Exec("DELETE FROM memes WHERE id = $1", memeID)
         if err != nil {
             return c.Status(500).JSON(fiber.Map{"error": "Database error"})
         }
@@ -130,17 +160,17 @@ func main() {
 
             // Reverse previous vote first
             if previousVote == "up" {
-                _, _ = db.Exec("UPDATE memes SET votes = votes - 1 WHERE id = ?", memeID)
+                _, _ = db.Exec("UPDATE memes SET votes = votes - 1 WHERE id = $1", memeID)
             } else if previousVote == "down" {
-                _, _ = db.Exec("UPDATE memes SET votes = votes + 1 WHERE id = ?", memeID)
+                _, _ = db.Exec("UPDATE memes SET votes = votes + 1 WHERE id = $1", memeID)
             }
         }
 
         // Apply the new vote
         if direction == "up" {
-            _, err = db.Exec("UPDATE memes SET votes = votes + 1 WHERE id = ?", memeID)
+            _, err = db.Exec("UPDATE memes SET votes = votes + 1 WHERE id = $1", memeID)
         } else if direction == "down" {
-            _, err = db.Exec("UPDATE memes SET votes = votes - 1 WHERE id = ?", memeID)
+            _, err = db.Exec("UPDATE memes SET votes = votes - 1 WHERE id = $1", memeID)
         } else {
             return c.Status(400).JSON(fiber.Map{"error": "Invalid vote direction"})
         }
@@ -157,6 +187,27 @@ func main() {
 
         // Return updated vote count
         return c.JSON(fiber.Map{"votes": getMemeVotes(memeID)})
+    })
+
+    // Route: Add Comment to Meme
+    app.Post("/comment/:id", func(c *fiber.Ctx) error {
+        memeID := c.Params("id")
+        author := c.FormValue("author")
+        content := c.FormValue("content")
+
+        if author == "" || content == "" {
+            return c.Status(400).JSON(fiber.Map{"error": "Author and content are required"})
+        }
+
+        // Insert comment into database
+        _, err := db.Exec("INSERT INTO comments (meme_id, author, content) VALUES ($1, $2, $3)",
+            memeID, author, content)
+        if err != nil {
+            log.Println("Error inserting comment:", err)
+            return c.Status(500).JSON(fiber.Map{"error": "Database error"})
+        }
+
+        return c.JSON(fiber.Map{"success": "Comment added successfully"})
     })
 
     // Route: Generate Meme
@@ -259,8 +310,8 @@ func main() {
 
 // Create DB table
 func createTable() {
-    query := `CREATE TABLE IF NOT EXISTS memes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    memeQuery := `CREATE TABLE IF NOT EXISTS memes (
+        id SERIAL PRIMARY KEY,
         template TEXT,
         lines TEXT,  -- JSON encoded array of lines
         url TEXT,
@@ -268,7 +319,19 @@ func createTable() {
         link TEXT DEFAULT '',
         votes INTEGER DEFAULT 0
     )`
-    _, err := db.Exec(query)
+    _, err := db.Exec(memeQuery)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    commentQuery := `CREATE TABLE IF NOT EXISTS comments (
+        id SERIAL PRIMARY KEY,
+        meme_id INTEGER REFERENCES memes(id) ON DELETE CASCADE,
+        author TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`
+    _, err = db.Exec(commentQuery)
     if err != nil {
         log.Fatal(err)
     }
@@ -299,6 +362,9 @@ func getAllMemes() []Meme {
         json.Unmarshal([]byte(linesJSON), &lines)
         meme.Lines = strings.Join(lines, "\n") // Convert to a readable format
 
+        // Fetch comments for this meme
+        meme.Comments = getCommentsForMeme(meme.ID)
+
         memes = append(memes, meme)
     }
     return memes
@@ -306,7 +372,7 @@ func getAllMemes() []Meme {
 
 // Save meme metadata
 func saveMeme(template, linesJSON, url, context, link string) {
-    _, err := db.Exec("INSERT INTO memes (template, lines, url, context, link, votes) VALUES (?, ?, ?, ?, ?, 0)",
+    _, err := db.Exec("INSERT INTO memes (template, lines, url, context, link, votes) VALUES ($1, $2, $3, $4, $5, 0)",
         template, linesJSON, url, context, link)
     if err != nil {
         log.Println("Error inserting meme:", err)
@@ -319,7 +385,7 @@ func serveMeme(c *fiber.Ctx) error {
 
     // Fetch meme from DB
     var memeURL string
-    err := db.QueryRow("SELECT url FROM memes WHERE id = ?", id).Scan(&memeURL)
+    err := db.QueryRow("SELECT url FROM memes WHERE id = $1", id).Scan(&memeURL)
     if err != nil {
         return c.Status(404).SendString("Meme not found")
     }
@@ -458,7 +524,7 @@ func generateMeme(template, topText, bottomText string) ([]byte, error) {
 
 // Get meme parameters from SQLite DB
 func getMemeParams(url string) (template, topText, bottomText string) {
-    row := db.QueryRow("SELECT template, topText, bottomText FROM memes WHERE url = ?", url)
+    row := db.QueryRow("SELECT template, topText, bottomText FROM memes WHERE url = $1", url)
     err := row.Scan(&template, &topText, &bottomText)
     if err != nil {
         log.Println("Error retrieving meme params:", err)
@@ -469,10 +535,32 @@ func getMemeParams(url string) (template, topText, bottomText string) {
 // Get current meme votes
 func getMemeVotes(memeID string) int {
     var votes int
-    err := db.QueryRow("SELECT votes FROM memes WHERE id = ?", memeID).Scan(&votes)
+    err := db.QueryRow("SELECT votes FROM memes WHERE id = $1", memeID).Scan(&votes)
     if err != nil {
         log.Println("Error fetching meme votes:", err)
         return 0
     }
     return votes
+}
+
+// Get comments for a specific meme
+func getCommentsForMeme(memeID int) []Comment {
+    rows, err := db.Query("SELECT id, meme_id, author, content, created_at FROM comments WHERE meme_id = $1 ORDER BY created_at ASC", memeID)
+    if err != nil {
+        log.Println("Error fetching comments:", err)
+        return nil
+    }
+    defer rows.Close()
+
+    var comments []Comment
+    for rows.Next() {
+        var comment Comment
+        err := rows.Scan(&comment.ID, &comment.MemeID, &comment.Author, &comment.Content, &comment.CreatedAt)
+        if err != nil {
+            log.Println("Error scanning comment:", err)
+            continue
+        }
+        comments = append(comments, comment)
+    }
+    return comments
 }

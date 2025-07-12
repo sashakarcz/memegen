@@ -1,4 +1,17 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: meme-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: memegen
+      POSTGRES_USER: memegen
+      POSTGRES_PASSWORD: memegen_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   redis:
     image: redis:alpine
     container_name: meme-redis
@@ -12,3 +25,24 @@ services:
     ports:
       - "5002:5000"
     restart: always
+
+  app:
+    build: .
+    container_name: memegen-app
+    ports:
+      - "8181:8181"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=memegen
+      - DB_PASSWORD=memegen_password
+      - DB_NAME=memegen
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+
+volumes:
+  postgres_data:

@@ -88,6 +88,54 @@
             opacity: 0.6;
             pointer-events: none;
         }
+
+        /* Comments Section Styling */
+        .comments-section {
+            display: none;
+            border-top: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+
+        .comment {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .comment:last-child {
+            border-bottom: none;
+        }
+
+        .comment-author {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .comment-date {
+            font-size: 0.8em;
+            color: #666;
+            margin-left: 10px;
+        }
+
+        .comment-content {
+            margin-top: 4px;
+            color: #555;
+        }
+
+        .comment-form {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 4px;
+        }
+
+        .comment-form input, .comment-form textarea {
+            width: 100%;
+            margin-bottom: 8px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
     </style>
 
     <script>
@@ -126,6 +174,36 @@
                 }
             })
             .catch(error => console.error("Error:", error));
+        }
+
+        // Function to submit comment
+        function submitComment(memeID) {
+            let form = document.getElementById(`comment-form-${memeID}`);
+            let formData = new FormData(form);
+
+            fetch(`/comment/${memeID}`, {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload(); // Reload to show new comment
+                } else {
+                    alert("Error: " + data.error);
+                }
+            })
+            .catch(error => console.error("Error:", error));
+        }
+
+        // Function to toggle comment section
+        function toggleComments(memeID) {
+            let section = document.getElementById(`comments-section-${memeID}`);
+            if (section.style.display === "none" || section.style.display === "") {
+                section.style.display = "block";
+            } else {
+                section.style.display = "none";
+            }
         }
     </script>
 </head>
@@ -177,6 +255,36 @@
                                 onclick="vote('{{.ID}}', 'down', this)">
                             👎 Downvote
                         </button>
+                        <button class="mdl-button mdl-js-button mdl-button--raised"
+                                onclick="toggleComments('{{.ID}}')">
+                            💬 Comments ({{len .Comments}})
+                        </button>
+                    </div>
+                    
+                    <!-- Comments Section -->
+                    <div id="comments-section-{{.ID}}" class="comments-section">
+                        {{if .Comments}}
+                        {{range .Comments}}
+                        <div class="comment">
+                            <div>
+                                <span class="comment-author">{{.Author}}</span>
+                                <span class="comment-date">{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</span>
+                            </div>
+                            <div class="comment-content">{{.Content}}</div>
+                        </div>
+                        {{end}}
+                        {{else}}
+                        <p><em>No comments yet. Be the first to comment!</em></p>
+                        {{end}}
+                        
+                        <!-- Comment Form -->
+                        <form id="comment-form-{{.ID}}" class="comment-form" onsubmit="event.preventDefault(); submitComment('{{.ID}}');">
+                            <input type="text" name="author" placeholder="Your name" required>
+                            <textarea name="content" placeholder="Your comment..." rows="3" required></textarea>
+                            <button type="submit" class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">
+                                Post Comment
+                            </button>
+                        </form>
                     </div>
                 </div>
                 {{end}}
