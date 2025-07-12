@@ -305,6 +305,30 @@ func main() {
     // Route: Serve Meme via Redis
     app.Get("/meme/:id", serveMeme)
 
+    // Route: Meme Detail Page
+    app.Get("/meme/:id/view", func(c *fiber.Ctx) error {
+        memeID := c.Params("id")
+        
+        // Get meme details from database
+        var meme Meme
+        var linesJSON string
+        err := db.QueryRow("SELECT id, template, lines, url, context, link, votes FROM memes WHERE id = $1", memeID).Scan(
+            &meme.ID, &meme.Template, &linesJSON, &meme.URL, &meme.Context, &meme.Link, &meme.Votes)
+        if err != nil {
+            return c.Status(404).SendString("Meme not found")
+        }
+
+        // Decode JSON lines
+        var lines []string
+        json.Unmarshal([]byte(linesJSON), &lines)
+        meme.Lines = strings.Join(lines, "\n")
+
+        // Get comments for this meme
+        meme.Comments = getCommentsForMeme(meme.ID)
+
+        return renderTemplate(c, "meme_detail.html", meme)
+    })
+
     log.Fatal(app.Listen(":8181"))
 }
 

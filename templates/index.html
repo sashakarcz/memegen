@@ -232,7 +232,9 @@
                     </button>
 
                     <div class="mdl-card__media">
-                        <img src="/meme/{{.ID}}" width="100%">
+                        <a href="/meme/{{.ID}}/view">
+                            <img src="/meme/{{.ID}}" width="100%" style="cursor: pointer;">
+                        </a>
                     </div>
                     {{if .Context}}
                     <div class="mdl-card__supporting-text">
