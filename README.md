@@ -14,7 +14,7 @@ A self-hosted **meme generation platform** that allows users to:
 ## 🚀 Features
 - **Live Meme Previews** before creation
 - **Material Design UI** for a modern experience
-- **SQLite Database** to store meme metadata
+- **PostgreSQL Database** to store meme metadata
 - **Redis Caching** to speed up image loading
 - **Memegen API Proxying** to hide backend details
 - **Supports External Links** (e.g., news articles, tweets)
@@ -37,18 +37,16 @@ docker-compose up -d
 This will start:
 
  - [Memegen API](https://github.com/jacebrowning/memegen) (backend)
+ - PostgreSQL database
  - Redis (for caching)
 
-### **3️⃣ Build the Golang Binary**
+### **3️⃣ Run with Docker Compose**
 
 ```sh
-go build
+docker-compose up --build
 ```
 
-Then run the binary:
-```sh
-./go_memegen
-```
+This will build and start the entire application stack including the Go app.
 
 You can visit the webUI at:
 
@@ -56,18 +54,25 @@ http://localhost:8181
 
 ## Database
 
-Memegen uses a sqlite database for metadata about the memes:
+Memegen uses a PostgreSQL database for metadata about the memes:
 
-```
+```sql
 CREATE TABLE IF NOT EXISTS memes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     template TEXT,
-    topText TEXT,
-    bottomText TEXT,
+    lines TEXT,  -- JSON encoded array of lines
     url TEXT,
     context TEXT DEFAULT '',
     link TEXT DEFAULT '',
     votes INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+    id SERIAL PRIMARY KEY,
+    meme_id INTEGER REFERENCES memes(id) ON DELETE CASCADE,
+    author TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
