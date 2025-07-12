@@ -39,6 +39,7 @@ services:
       - DB_NAME=memegen
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - ADMIN_KEY=super_secret
     depends_on:
       - postgres
       - redis

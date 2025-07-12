@@ -51,7 +51,7 @@
         /* Meme Gallery Grid */
         .meme-gallery {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
             gap: 20px;
             padding: 20px;
             justify-content: center;
@@ -257,7 +257,7 @@
                         </button>
                         <button class="mdl-button mdl-js-button mdl-button--raised"
                                 onclick="toggleComments('{{.ID}}')">
-                            💬 Comments ({{len .Comments}})
+                            💬 {{len .Comments}}
                         </button>
                     </div>
                     

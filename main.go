@@ -112,7 +112,7 @@ func main() {
         adminKey := c.Query("key") // Get key from request query
 
         // Compare key with expected admin key
-        expectedKey := "CHANGEME" // Store in an environment variable for security
+        expectedKey := getEnv("ADMIN_KEY", "CHANGEME")
         if adminKey != expectedKey {
             return c.Status(403).JSON(fiber.Map{"error": "Unauthorized"})
         }
